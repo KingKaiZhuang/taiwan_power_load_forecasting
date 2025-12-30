@@ -36,6 +36,16 @@ def create_dashboard(view_type, selected_month="全部 (All)"):
     if forecast is None:
         return go.Figure(), pd.DataFrame()
 
+    # Filter data based on month (Applies to both Chart and Table)
+    if selected_month != "全部 (All)":
+        month_map = {
+            "1月": 1, "2月": 2, "3月": 3, "4月": 4, "5月": 5, "6月": 6,
+            "7月": 7, "8月": 8, "9月": 9, "10月": 10, "11月": 11, "12月": 12
+        }
+        m = month_map.get(selected_month)
+        if m:
+            forecast = forecast[forecast['ds'].dt.month == m]
+
     actual_data = forecast[forecast['data_type'] == 'Actual']
     predicted_data = forecast[forecast['data_type'] == 'Predicted']
     
@@ -43,20 +53,52 @@ def create_dashboard(view_type, selected_month="全部 (All)"):
     
     fig = go.Figure()
     
+    # Helper to insert None significantly large gaps (to break lines)
+    def get_plotting_data(df, col):
+        if selected_month == "全部 (All)":
+             return df['ds'], df[col]
+        
+        # If filtering, we reconstruct lists with Nones at gaps
+        x_vals, y_vals = [], []
+        if df.empty: return [], []
+        
+        # Sort just in case
+        df = df.sort_values('ds')
+        dates = df['ds'].tolist()
+        vals = df[col].tolist()
+        
+        last_date = None
+        for d, v in zip(dates, vals):
+            if last_date is not None and (d - last_date).days > 2:
+                # Gap detected (> 2 days), insert simple break
+                x_vals.append(None)
+                y_vals.append(None)
+            x_vals.append(d)
+            y_vals.append(v)
+            last_date = d
+        return x_vals, y_vals
+
     def add_traces(col_name, label, color_act, color_pred):
+        # Actual Data
+        x_act, y_act = get_plotting_data(actual_data, col_name)
         fig.add_trace(go.Scatter(
-            x=actual_data['ds'], 
-            y=actual_data[col_name], 
-            mode='lines', 
+            x=x_act, 
+            y=y_act, 
+            mode='lines+markers' if selected_month != "全部 (All)" else 'lines', 
             name=f'實際-{label}',
-            line=dict(color=color_act, width=1.5)
+            line=dict(color=color_act, width=1.5),
+            marker=dict(size=4)
         ))
+        
+        # Predicted Data
+        x_pred, y_pred = get_plotting_data(predicted_data, col_name)
         fig.add_trace(go.Scatter(
-            x=predicted_data['ds'], 
-            y=predicted_data[col_name], 
-            mode='lines', 
+            x=x_pred, 
+            y=y_pred, 
+            mode='lines+markers' if selected_month != "全部 (All)" else 'lines', 
             name=f'預測-{label}',
-            line=dict(color=color_pred, width=1.5)
+            line=dict(color=color_pred, width=1.5),
+            marker=dict(size=4)
         ))
 
     if view_type == "總耗電量 (Total)":
@@ -71,24 +113,12 @@ def create_dashboard(view_type, selected_month="全部 (All)"):
         add_traces('residential', '民生', 'darkgreen', 'green')
     
     fig.update_layout(
-        title=f'台灣電力負載：實際 vs 預測 ({view_type})',
+        title=f'台灣電力負載：實際 vs 預測 ({view_type}) - {selected_month}',
         xaxis_title='日期',
         yaxis_title='耗電量 (百萬度)',
         hovermode='x unified',
         template='plotly_white'
     )
-
-    # Filter table data based on month
-    if selected_month != "全部 (All)":
-        month_map = {
-            "1月": 1, "2月": 2, "3月": 3, "4月": 4, "5月": 5, "6月": 6,
-            "7月": 7, "8月": 8, "9月": 9, "10月": 10, "11月": 11, "12月": 12
-        }
-        # Extract month string (e.g., "1月" from "1月") or handle if formats differ
-        # Assuming input is like "1月", "2月"
-        m = month_map.get(selected_month)
-        if m:
-            forecast_2026 = forecast_2026[forecast_2026['ds'].dt.month == m]
 
     table_cols = ['ds', 'total', 'industrial', 'residential']
     table_data = forecast_2026[table_cols].copy()
