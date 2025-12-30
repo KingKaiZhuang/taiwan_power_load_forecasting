@@ -1,0 +1,9 @@
+pandas
+numpy
+scikit-learn
+xgboost
+gradio
+matplotlib
+seaborn
+plotly
+torch
