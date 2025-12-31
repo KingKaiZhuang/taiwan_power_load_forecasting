@@ -74,11 +74,10 @@ def create_carbon_dashboard(coef):
     
     # 4. 詳細資料表
     # 4. 詳細資料表
-    # 單位轉換展示: 百萬度 -> 萬瓩
-    CONV_FACTOR = 100 / 24
+    # Revert conversion to match user expectation
+    # CONV_FACTOR = 100 / 24
     table_df = df[['ds', 'total', 'carbon_emissions_tons']].copy()
-    # Convert total energy to avg power for display
-    table_df['total'] = table_df['total'] * CONV_FACTOR 
+    # table_df['total'] = table_df['total'] * CONV_FACTOR 
     
     table_df['ds'] = table_df['ds'].dt.strftime('%Y-%m-%d')
     table_df['total'] = table_df['total'].round(2)

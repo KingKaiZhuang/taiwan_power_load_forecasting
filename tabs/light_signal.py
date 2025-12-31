@@ -20,14 +20,15 @@ def create_light_dashboard(supply_capacity):
     # 計算備轉容量 (Reserve Margin)
     # 公式: 容量 = 供给 - 需求
     # 備轉率 = 容量 / 需求 * 100% (這裡用需求作為分母是簡化估算，台電是用尖峰負載計算)
-    # 單位轉換: 百萬度 -> 萬瓩 (以平均功率估算: Energy / 24h)
-    CONV_FACTOR = 100 / 24
-    df_2026['total_kw'] = df_2026['total'] * CONV_FACTOR
+    # User requested values to be ~3 digits (matching original magnitude)
+    # CONV_FACTOR = 100 / 24
+    df_2026['total_kw'] = df_2026['total']
+    df_2026['peak_kw'] = df_2026['peak_load'] 
     
     # 公式: 容量 = 供给 - 需求
-    # 備轉率 = 容量 / 需求 * 100% 
-    df_2026['margin'] = (supply_capacity - df_2026['total_kw'])
-    df_2026['margin_percent'] = (df_2026['margin'] / df_2026['total_kw']) * 100
+    # 備轉率 = 容量 / 需求 * 100% (这里需求使用尖峰负载)
+    df_2026['margin'] = (supply_capacity - df_2026['peak_kw'])
+    df_2026['margin_percent'] = (df_2026['margin'] / df_2026['peak_kw']) * 100
     
     # 定義燈號邏輯
     def get_light(row):
@@ -60,7 +61,7 @@ def create_light_dashboard(supply_capacity):
                 name=subset['light_status'].iloc[0],
                 marker_color=color_code,
                 customdata=subset['margin_percent'],
-                hovertemplate='%{x}<br>耗電: %{y:.1f}<br>備轉率: %{customdata:.2f}%'
+                hovertemplate='%{x}<br>平均負載: %{y:.1f}<br>備轉率: %{customdata:.2f}%'
             ))
 
     fig.update_layout(
@@ -78,7 +79,7 @@ def create_light_dashboard(supply_capacity):
     # 產生「非綠燈」的警戒清單表格
     warning_days = df_2026[df_2026['light_color'] != 'Green'][['ds', 'total_kw', 'margin_percent', 'light_status']].sort_values('margin_percent')
     warning_days['ds'] = warning_days['ds'].dt.strftime('%Y-%m-%d')
-    warning_days['total'] = warning_days['total_kw'].round(1)
+    warning_days['total_kw'] = warning_days['total_kw'].round(1)
     warning_days['margin_percent'] = warning_days['margin_percent'].round(2)
     warning_days.columns = ['日期', '平均負載(萬瓩)', '備轉率(%)', '燈號狀態']
 
@@ -90,8 +91,8 @@ def create_light_signal_tab():
         gr.Markdown("輸入假設的「每日最大供電能力」，系統將計算每日備轉容量率並模擬燈號。")
         
         with gr.Row():
-            # 預設供給值設為 2000 (對應 萬瓩)
-            supply_input = gr.Number(value=2000, label="每日最大供電能力 (萬瓩)", precision=0)
+            # Revert default to 1000 as values are ~500
+            supply_input = gr.Number(value=1000, label="每日最大供電能力 (萬瓩)", precision=0)
             sim_btn = gr.Button("🚦 執行模擬", variant="primary")
         
         with gr.Row():

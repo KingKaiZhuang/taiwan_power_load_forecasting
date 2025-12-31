@@ -49,25 +49,32 @@ def load_and_process_data(filepath):
     df = pd.read_csv(filepath)
     
     # 處理日期格式
-    df['日期'] = df['日期'].astype(str).str.strip()
-    df['ds'] = pd.to_datetime(df['日期'], format='%Y%m%d', errors='coerce')
+    df['date'] = df['date'].astype(str).str.strip()
+    df['ds'] = pd.to_datetime(df['date'], format='%Y%m%d', errors='coerce')
     df = df.dropna(subset=['ds'])
     
     # 處理數值 (轉為數字並填補 NaN 為 0)
-    df['工業用電(百萬度)'] = pd.to_numeric(df['工業用電(百萬度)'], errors='coerce').fillna(0)
-    df['民生用電(百萬度)'] = pd.to_numeric(df['民生用電(百萬度)'], errors='coerce').fillna(0)
+    df['industrial'] = pd.to_numeric(df['industrial'], errors='coerce').fillna(0)
+    df['residential'] = pd.to_numeric(df['residential'], errors='coerce').fillna(0)
+    df['peak_load'] = pd.to_numeric(df['peak_load'], errors='coerce').fillna(0)
     
     # 重新命名欄位以便識別
-    df = df.rename(columns={
-        '工業用電(百萬度)': 'industrial',
-        '民生用電(百萬度)': 'residential'
-    })
+    # Columns are already in English
+    # df = df.rename(columns={
+    #     '工業用電(百萬度)': 'industrial',
+    #     '民生用電(百萬度)': 'residential'
+    # })
     
     # 計算總耗電量
     df['total'] = df['industrial'] + df['residential']
     
-    # 轉為每日數據 (加總)
-    df_daily = df.groupby('ds')[['industrial', 'residential', 'total']].sum().reset_index()
+    # 轉為每日數據 (加總，尖峰負載取最大值 - 雖然資料已是每日，依邏輯應為 Max)
+    df_daily = df.groupby('ds').agg({
+        'industrial': 'sum',
+        'residential': 'sum',
+        'total': 'sum',
+        'peak_load': 'max'
+    }).reset_index()
     # 移除異常值 (總耗電 <= 0 的資料)
     df_daily = df_daily[df_daily['total'] > 0]
     df_daily = df_daily.sort_values('ds')
@@ -201,12 +208,19 @@ def train_model(df, epochs=300, lr=0.005, seq_length=720):
     if model_res:
         save_checkpoint("residential", model_res, scaler_res)
     
-    if model_ind is None or model_res is None:
+    # 訓練尖峰負載模型
+    print("Training Peak Load Model... (訓練尖峰負載模型)")
+    model_peak, scaler_peak, seq_len_peak = train_single_model(df, 'peak_load', epochs, lr, seq_length)
+    if model_peak:
+        save_checkpoint("peak_load", model_peak, scaler_peak)
+
+    if model_ind is None or model_res is None or model_peak is None:
         raise ValueError("Training failed due to insufficient data for the chosen Sequence Length.")
 
     return {
         'industrial': (model_ind, scaler_ind, seq_len_ind),
-        'residential': (model_res, scaler_res, seq_len_res)
+        'residential': (model_res, scaler_res, seq_len_res),
+        'peak_load': (model_peak, scaler_peak, seq_len_peak)
     }
 
 def predict_future(model_tuple, df, target_col, future_dates):
@@ -286,16 +300,20 @@ def make_prediction(train_results, df):
     # 預測民生用電
     pred_res = predict_future(train_results['residential'], df, 'residential', future_dates)
     
+    # 預測尖峰負載
+    pred_peak = predict_future(train_results['peak_load'], df, 'peak_load', future_dates)
+    
     forecast_df = pd.DataFrame({
         'ds': future_dates,
         'industrial': pred_ind,
         'residential': pred_res,
+        'peak_load': pred_peak,
         'data_type': 'Predicted'
     })
     # 計算總和
     forecast_df['total'] = forecast_df['industrial'] + forecast_df['residential']
     
-    history_df = df[['ds', 'industrial', 'residential', 'total']].copy()
+    history_df = df[['ds', 'industrial', 'residential', 'peak_load', 'total']].copy()
     history_df['data_type'] = 'Actual'
     
     full_df = pd.concat([history_df, forecast_df], ignore_index=True)
@@ -310,8 +328,9 @@ def evaluate_model(df, test_days=60, seq_length=720):
     # 載入已存檔的模型
     model_ind, scaler_ind = load_checkpoint("industrial")
     model_res, scaler_res = load_checkpoint("residential")
+    model_peak, scaler_peak = load_checkpoint("peak_load")
     
-    if model_ind is None or model_res is None:
+    if model_ind is None or model_res is None or model_peak is None:
         return None, None, None
 
     cutoff_index = len(df) - test_days
@@ -323,6 +342,7 @@ def evaluate_model(df, test_days=60, seq_length=720):
     # 進行回測預測
     pred_ind = predict_future((model_ind, scaler_ind, seq_length), train_df, 'industrial', test_dates)
     pred_res = predict_future((model_res, scaler_res, seq_length), train_df, 'residential', test_dates)
+    pred_peak = predict_future((model_peak, scaler_peak, seq_length), train_df, 'peak_load', test_dates)
     
     metrics = {}
     
@@ -335,6 +355,11 @@ def evaluate_model(df, test_days=60, seq_length=720):
     rmse_res = np.sqrt(mean_squared_error(test_df['residential'], pred_res))
     mae_res = mean_absolute_error(test_df['residential'], pred_res)
     metrics['residential'] = {'rmse': rmse_res, 'mae': mae_res}
+
+    # 計算尖峰負載指標
+    rmse_peak = np.sqrt(mean_squared_error(test_df['peak_load'], pred_peak))
+    mae_peak = mean_absolute_error(test_df['peak_load'], pred_peak)
+    metrics['peak_load'] = {'rmse': rmse_peak, 'mae': mae_peak}
     
     # 計算總用電指標
     pred_total = pred_ind + pred_res
@@ -343,10 +368,11 @@ def evaluate_model(df, test_days=60, seq_length=720):
     metrics['total'] = {'rmse': rmse_total, 'mae': mae_total}
     
     # 整理評估結果 DataFrame
-    eval_df = test_df[['ds', 'industrial', 'residential', 'total']].copy()
-    eval_df = eval_df.rename(columns={'industrial': 'Actual_Ind', 'residential': 'Actual_Res', 'total': 'Actual_Total'})
+    eval_df = test_df[['ds', 'industrial', 'residential', 'peak_load', 'total']].copy()
+    eval_df = eval_df.rename(columns={'industrial': 'Actual_Ind', 'residential': 'Actual_Res', 'peak_load': 'Actual_Peak', 'total': 'Actual_Total'})
     eval_df['Predicted_Ind'] = pred_ind
     eval_df['Predicted_Res'] = pred_res
+    eval_df['Predicted_Peak'] = pred_peak
     eval_df['Predicted_Total'] = pred_total
     
     return eval_df, metrics, train_df
