@@ -19,14 +19,13 @@ def create_light_dashboard(supply_capacity):
 
     # 計算備轉容量 (Reserve Margin)
     # 公式: 容量 = 供给 - 需求
-    # 備轉率 = 容量 / 需求 * 100% (這裡用需求作為分母是簡化估算，台電是用尖峰負載計算)
+    # 備轉率 = 容量 / 需求 * 100% (台電是用尖峰負載計算)
     # User requested values to be ~3 digits (matching original magnitude)
     # CONV_FACTOR = 100 / 24
     df_2026['total_kw'] = df_2026['total']
     df_2026['peak_kw'] = df_2026['peak_load'] 
     
     # 公式: 容量 = 供给 - 需求
-    # 備轉率 = 容量 / 需求 * 100% (这里需求使用尖峰负载)
     df_2026['margin'] = (supply_capacity - df_2026['peak_kw'])
     df_2026['margin_percent'] = (df_2026['margin'] / df_2026['peak_kw']) * 100
     

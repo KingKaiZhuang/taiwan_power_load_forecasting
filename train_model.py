@@ -60,10 +60,7 @@ def load_and_process_data(filepath):
     
     # 重新命名欄位以便識別
     # Columns are already in English
-    # df = df.rename(columns={
-    #     '工業用電(百萬度)': 'industrial',
-    #     '民生用電(百萬度)': 'residential'
-    # })
+
     
     # 計算總耗電量
     df['total'] = df['industrial'] + df['residential']

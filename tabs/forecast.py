@@ -139,7 +139,7 @@ def create_forecast_tab():
         with gr.Row():
             with gr.Column(scale=1):
                 gr.Markdown("### 訓練參數設定")
-                epochs_slider = gr.Slider(minimum=50, maximum=100000, value=300, step=50, label="訓練次數 (Epochs)")
+                epochs_slider = gr.Slider(minimum=50, maximum=3000, value=300, step=50, label="訓練次數 (Epochs)")
                 lr_number = gr.Number(value=0.005, label="學習率 (Learning Rate)", step=0.001)
                 seq_slider = gr.Slider(minimum=7, maximum=730, value=720, step=1, label="回看天數 (Sequence Length)")
                 train_btn = gr.Button("訓練模型並預測", variant="primary")
